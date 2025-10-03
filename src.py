@@ -138,19 +138,7 @@ async def query_knowledge_base(query: str) -> str:
     if vector_store is None:
         return "Error: The knowledge base has not been created yet. Please use 'add_document_to_knowledge_base' first."
 
-    # You can configure the retriever here.
-    # For example, to get the top 3 most relevant documents:
-    # retriever = vector_store.as_retriever(
-    #     search_kwargs={"k": 7}
-    # )
-
-    # Use the async method to invoke the retriever
-    # docs = await retriever.ainvoke(query)
-
-    # The `asimilarity_search` method is a direct way to find the most
-    # relevant document chunks. We'll retrieve the top 7, as indicated
-    # in the commented-out retriever code.
-    
+    # Use the async version to avoid blocking the event loop
     docs = await vector_store.asimilarity_search_with_score(query, k=7)
 
     # filter results based on score thresholds
