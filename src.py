@@ -21,6 +21,9 @@ from dotenv import load_dotenv      # Reading .env files
 import asyncio
 import glob
 import re
+import sqlite3
+from datetime import datetime
+import json
 from typing import List, Dict, Any
 
 # MCP imports
@@ -51,6 +54,32 @@ embeddings = HuggingFaceInferenceAPIEmbeddings(
 
 # Global variable to hold the vector store in memory
 vector_store: FAISS | None = None
+DB_FILE = "logs.db"
+
+def init_db():
+    """Initializes the SQLite database and creates the logs table if it doesn't exist."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usage_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            inputs TEXT NOT NULL,
+            output TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def log_usage(tool_name: str, inputs: dict, output: str):
+    """Logs a tool usage event to the SQLite database."""
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO usage_logs (timestamp, tool_name, inputs, output) VALUES (?, ?, ?, ?)",
+                   (datetime.utcnow().isoformat(), tool_name, json.dumps(inputs), output))
+    conn.commit()
+    conn.close()
 
 # Helper functions ===============================================
 
@@ -146,7 +175,10 @@ async def query_knowledge_base(query: str) -> str:
 
     # Format the results for a clean output
     results = [f"Source: {doc[0].metadata.get('source', 'Unknown')}, Page: {doc[0].metadata.get('page', 'N/A')}:\n{doc[0].page_content}\n" for doc in results]
-    return "\n---\n".join(results) if results else "No relevant documents found."
+    output_str = "\n---\n".join(results) if results else "No relevant documents found."
+    
+    log_usage("query_knowledge_base", {"query": query}, output_str)
+    return output_str
 
 
 @mcp.tool()
@@ -185,7 +217,10 @@ async def search_specific_documents(query: str, document_names: list[str]) -> st
     
     # Format the results for a clean, string-based output
     results_str = [f"Source: {doc.metadata.get('source', 'Unknown')}, Page: {doc.metadata.get('page', 'N/A')}:\n{doc.page_content}\n" for doc, score in final_filter]
-    return "\n---\n".join(results_str) if results_str else "No relevant documents found in the specified sources."
+    output_str = "\n---\n".join(results_str) if results_str else "No relevant documents found in the specified sources."
+
+    log_usage("search_specific_documents", {"query": query, "document_names": document_names}, output_str)
+    return output_str
 
     
 if __name__ == "__main__":
@@ -194,6 +229,9 @@ if __name__ == "__main__":
         Main async function to initialize the vector store and run the MCP server.
         """
         global vector_store
+
+        print("Initializing logging database...")
+        init_db()
         
         # Assume PDFs are in a 'data' directory at the project root
         # Project Root -> data/
